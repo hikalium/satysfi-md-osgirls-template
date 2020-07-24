@@ -1,0 +1,11 @@
+*.swp
+*.pdf
+*.pdf.md
+*aux
+.DS_Store
+v*/
+*.zip
+*.app
+*/pdf_jpg/*
+*/Assets/*
+front.jpg

@@ -1,0 +1,701 @@
+% Markdown satyh for OSGirls
+% h1: Same as h2 but without numbering
+% h2:
+% h3:
+% h4:
+% h5:
+% h6: New page
+
+@require: pervasives
+@require: math
+@require: itemize
+@require: color
+@require: hdecoset
+@require: vdecoset
+@require: annot
+
+@require: pervasives
+@require: list
+@require: color
+@require: gr
+@require: vdecoset
+
+module Code : sig
+
+  val scheme : deco-set -> color -> context -> string -> block-boxes
+  direct +code : [string] block-cmd
+  direct +console : [string] block-cmd
+  direct \code : [string] inline-cmd
+  direct \console : [string] inline-cmd
+  direct \d-code : [string] inline-cmd
+
+end = struct
+
+  let code-fill-color = Gray(0.900)
+  let code-stroke-color = Gray(0.500)
+  let console-fill-color = Gray(0.25)
+
+
+  let decoset-code =
+    VDecoSet.simple-frame 1pt code-stroke-color code-fill-color
+
+
+  let dummy _ =
+    let strokef = stroke 1pt code-stroke-color in
+    let gr-back x y w d h =
+      fill code-fill-color (Gr.rectangle (x, y -' d) (x +' w, y +' h))
+    in
+    let decoS (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.rectangle (x, y -' d) (x +' w, y +' h));
+      ]
+    in
+    let decoH (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.poly-line (x, y -' d) [(x, y +' h); (x +' w, y +' h); (x +' w, y -' d);])
+      ]
+    in
+    let decoM (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.line (x, y -' d) (x, y +' h));
+        strokef (Gr.line (x +' w, y -' d) (x +' w, y +' h));
+      ]
+    in
+    let decoT (x, y) w h d =
+      [
+        gr-back x y w d h;
+        strokef (Gr.poly-line (x, y +' h) [(x, y -' d); (x +' w, y -' d); (x +' w, y +' h)])
+      ]
+    in
+      (decoS, decoH, decoM, decoT)
+
+
+  let decoset-console =
+    let deco (x, y) w h d =
+      [ fill console-fill-color (Gr.rectangle (x, y -' d) (x +' w, y +' h)) ]
+    in
+      (deco, deco, deco, deco)
+
+
+  let set-code-font ctx =
+    ctx |> set-font Latin (`SourceCodePro-Regular`, 1., 0.)
+        |> set-hyphen-penalty 100000
+
+
+  let scheme decoset txtcolor ctx code =
+    let pads = (5pt, 5pt, 5pt, 5pt) in
+    block-frame-breakable ctx pads decoset (fun ctx -> (
+      let fontsize = get-font-size ctx in
+      let ctx = ctx |> set-code-font in
+      let charwid = get-natural-width (read-inline ctx {0}) in
+      let ctx-code =
+        ctx |> set-space-ratio (charwid /' fontsize) 0. 0.
+            |> set-text-color txtcolor
+      in
+
+      let lstraw = split-into-lines code in
+      let lst =
+        match lstraw with
+        | []        -> lstraw
+        | x :: []   -> lstraw
+        | _ :: tail -> tail
+      in
+      let ib-code =
+        lst |> List.fold-left-adjacent (fun ibacc (i, s) _ optnext -> (
+          let ib-last =
+            match optnext with
+            | Some(_) -> inline-fil ++ discretionary 0 (inline-skip ((get-text-width ctx) *' 2.)) inline-nil inline-nil
+            | None    -> inline-fil
+          in
+          let ib =
+            inline-skip (charwid *' (float i))
+              ++ read-inline ctx-code (embed-string s)
+              ++ ib-last
+          in
+            ibacc ++ ib
+        )) inline-nil
+      in
+        line-break true true ctx ib-code
+    ))
+
+
+  let-block ctx +code code =
+    scheme decoset-code Color.black ctx code
+
+
+  let-inline ctx \d-code code =
+    inline-fil ++ embed-block-breakable ctx
+      (read-block ctx '<+code(code);>)
+
+
+  let-block ctx +console code =
+    scheme decoset-console Color.white ctx code
+
+
+  let-inline ctx \console code =
+    inline-fil ++ embed-block-breakable ctx
+      (read-block ctx '<+console(code);>)
+
+
+  let-inline ctx \code code =
+    script-guard Latin
+      (read-inline (ctx |> set-code-font) (embed-string code))
+
+end
+
+module OSGirls : sig
+  val document : 'a -> block-text -> document
+    constraint 'a :: (|
+      title  : inline-text;
+      author : inline-text;
+      pictures-by : inline-text;
+      printed-by : inline-text;
+      revisions : (inline-text * inline-text) list;
+    |)
+
+  direct +h1 : [inline-text; block-text] block-cmd
+  direct +h2 : [inline-text; block-text] block-cmd
+  direct +h3 : [inline-text; block-text] block-cmd
+  direct +h4 : [inline-text; block-text] block-cmd
+  direct +h6 : [inline-text; block-text] block-cmd
+  direct +p : [inline-text] block-cmd
+  direct +ul : [inline-text list] block-cmd
+  direct +ol : [inline-text list] block-cmd
+  direct +code : [string] block-cmd
+  direct +console : [string] block-cmd
+  direct +quote : [block-text] block-cmd
+  direct +hr : [] block-cmd
+  direct +error : [string] block-cmd
+
+  direct \code : [string] inline-cmd
+  direct \emph : [inline-text] inline-cmd
+  direct \bold : [inline-text] inline-cmd
+  direct \link : [string; inline-text] inline-cmd
+  direct \reference : [string; string; (string * string) option] inline-cmd
+  direct \img : [string; string; string] inline-cmd
+  direct \hard-break : [] inline-cmd
+  direct \embed-block : [block-text] inline-cmd
+  direct \error : [string] inline-cmd
+end = struct
+
+  type toc-element =
+    | TOCElement    of inline-text option * inline-text    % (prefix, label)
+
+  let paper = A5Paper
+  let paper-width = 148mm
+  let paper-height = 210mm
+  let header-height = 18mm
+  let footer-height = 18mm
+  let text-origin = ( paper-width *' 0.1, header-height )
+  let text-width = paper-width *' 0.80
+  let text-height = paper-height -' header-height -' footer-height
+  let footer-origin = (paper-width *' 0.1, paper-height -' footer-height *' 0.65)
+  let padding-top-title = 5cm
+
+  let font-size-main = 3.1mm
+  let font-size-title = 30pt
+  let font-size-h1 = 18pt
+  let font-size-h2 = 16pt
+  let font-size-h3 = 14pt
+
+  let font-ratio-cjk = 1.
+
+  let font-latin-roman  = (`SourceCodePro-Regular`   , 1., 0.)
+  let font-latin-italic = (`SourceCodePro-Regular`, 1., 0.)
+  let font-latin-sans   = (`SourceCodePro-Regular`     , 1., 0.)
+  let font-latin-mono   = (`SourceCodePro-Regular`     , 1., 0.)
+
+  let font-cjk-gothic = (`HiraKakuGothicW2`, font-ratio-cjk, 0.)
+  let font-cjk-mincho = (`ipaexm`, font-ratio-cjk, 0.)
+
+  let hr-margin = 5mm
+  let hr-thickness = 0.5pt
+
+  let code-background = Gray(0.88)
+
+  let text-color-link = RGB(0.0, 0.5, 1.0)
+
+  let strut h d =
+    inline-graphics 0pt h d (fun _ -> [])
+
+  let-mutable h1-number <- 0
+  let-mutable h2-number <- -1
+  let-mutable h3-number <- 0
+  let-mutable h4-number <- 0
+  let-mutable h5-number <- 0
+  let-mutable h6-number <- 0
+  let-mutable reference-acc <- []
+  let-mutable toc-items <- []
+
+
+  let set-latin-font font ctx =
+    ctx |> set-font Latin font
+
+
+  let set-cjk-font font ctx =
+    ctx |> set-font Kana font
+        |> set-font HanIdeographic font
+
+
+  let initial-context =
+    get-initial-context text-width (command \math)
+      |> set-dominant-narrow-script Latin
+      |> set-dominant-wide-script Kana
+      |> set-latin-font font-latin-roman
+      |> set-cjk-font font-cjk-gothic
+      |> set-hyphen-penalty 1000
+      |> set-space-ratio 0.275 0.08 0.12
+      |> set-font-size font-size-main
+      |> set-leading 14pt
+      |> set-paragraph-margin 10pt 10pt
+
+
+  let footer pbinfo =
+    let it-nombre = embed-string (if (pbinfo#page-number <> 0) then (arabic pbinfo#page-number) else (` `)) in
+    let ctx = initial-context in
+    line-break true true ctx
+      (if (pbinfo#page-number <> 0) then
+        (inline-fil ++ read-inline ctx { #it-nombre; } ++ inline-fil)
+      else
+        inline-fil)
+
+
+  let make-title-context ctx =
+    ctx |> set-font-size font-size-title
+        %|> set-latin-font font-latin-mono
+        %|> set-cjk-font font-cjk-gothic
+
+
+  let pads-zero = (0pt, 0pt, 0pt, 0pt)
+
+
+  let-inline ctx \link url it =
+    inline-frame-breakable pads-zero (Annot.link-to-uri-frame url None)
+      (read-inline (ctx |> set-text-color text-color-link) it)
+
+
+  let-inline ctx \jump key-pdf-loc it =
+    inline-frame-breakable pads-zero (Annot.link-to-location-frame key-pdf-loc None)
+      (read-inline ctx it)
+
+
+  let set-heading-font size ctx =
+    ctx |> set-latin-font font-latin-sans
+        |> set-cjk-font font-cjk-gothic
+        |> set-font-size size
+
+
+  let h1-heading = set-heading-font font-size-h1
+  let h2-heading = set-heading-font font-size-h2
+  let h3-heading = set-heading-font font-size-h3
+
+  let heading-scheme ctx bb-title bt =
+    let bb-content = read-block ctx bt in
+    bb-title +++ bb-content
+
+  let document rcd bt =
+    let ctx = initial-context in
+    let bb-title =
+      let ctx = ctx |> make-title-context in
+      line-break true true ctx
+        (inline-fil ++ read-inline ctx rcd#title ++ inline-fil)
+    in
+    let bb-colophon =
+		  let it2ib ctx it =
+		    let ctx = ctx
+			    |> set-latin-font font-latin-mono
+			    |> set-cjk-font font-cjk-gothic
+		    in
+			  (read-inline ctx it)
+		  in
+		  let bb ctx it = 
+    	  line-break true true ctx (
+	        script-guard Latin (it2ib ctx it))
+		  in
+		  let ib2bb ctx ib = 
+    	  line-break true true ctx (
+	        script-guard Latin ib)
+		  in
+      let author = rcd#author
+		  in
+      let pictures-by = rcd#pictures-by
+		  in
+      let printed-by = rcd#printed-by
+      in
+      let right-aligned-ib ctx expected-width it it-subseq = 
+        let ib = read-inline ctx it
+        in
+        let (actual-width, _, _) = get-natural-metrics ib
+        in
+        inline-skip (expected-width -' actual-width) ++ read-inline ctx {#it; #it-subseq;}
+      in
+      let vertical-space = 0.1cm
+      in
+      let left-align-width = 2cm
+      in
+      let right-align-width = 8cm
+      in
+      let bb-revisions = rcd#revisions |> List.fold-left(fun bb-acc e -> (
+        match e with
+          | (d, v) ->
+            bb-acc +++ ib2bb ctx (right-aligned-ib ctx right-align-width d { / #v;})
+      )) block-nil
+      in
+		  let bb-colophon-body ctx = (List.fold-left (+++) block-nil [
+        bb (ctx |> set-font-size ((get-font-size ctx) *' 2.)) rcd#title;
+	      block-skip vertical-space; 
+        bb-revisions;
+	      block-skip vertical-space; 
+        ib2bb ctx (right-aligned-ib ctx left-align-width {Author:} author);
+        ib2bb ctx (right-aligned-ib ctx left-align-width {Pictures by:} pictures-by);
+        ib2bb ctx (right-aligned-ib ctx left-align-width {Printed by:} printed-by);
+        ib2bb ctx (right-aligned-ib ctx left-align-width {Made with:} {\SATySFi;});
+		  ])
+      in
+      let pad = 0.7cm
+      in
+      let pads = (pad, pad, pad, pad) % (L, R, U, D)
+      in
+      let decoset = HDecoSet.rectangle-round-fill 4pt 2pt code-background
+      in
+      let bb-colophon-box = block-frame-breakable ctx pads decoset (fun ctx -> (
+        bb-colophon-body ctx
+      ))
+      in
+      line-break true true ctx (add-footnote bb-colophon-box)
+    in
+    let bb-author =
+        let ctx = ctx
+          |> set-font-size 5mm
+        in
+        let author = rcd#author
+        in
+        line-break true true ctx
+        (inline-fil ++ read-inline ctx {by #author;})
+    in
+	let bb-cover = 
+      (List.fold-left (+++) block-nil [
+		block-skip padding-top-title; 
+		bb-title;
+		bb-author;
+      ])
+	in
+    let bb-main = 
+		read-block ctx bt
+	in
+	let bb-toc = 
+    let indent-width = (get-font-size ctx) *' 2.
+    in
+		let bb-toc-main = 
+      (!toc-items) |> List.reverse |> List.fold-left
+        (fun bbacc tocelem -> (
+		      let ctx = ctx
+		        |> set-font-size (get-font-size ctx *' 1.2)
+          in
+          let elem-ib it  = read-inline ctx it
+          in
+          let elem-bb it  = line-break true true ctx (read-inline ctx {#it;})
+          in
+          match tocelem with
+            | TOCElement(Some(prefix), title) ->
+              let ib-prefix = read-inline ctx prefix
+              in
+              let (actual-prefix-width, _, _) = get-natural-metrics ib-prefix
+              in
+              let (expected-prefix-width, _, _) = get-natural-metrics (read-inline ctx {ring 0:})
+              in
+              let right-aligned-ib ctx expected-width it it-subseq = 
+                let ib = read-inline ctx it
+                in
+                let (actual-width, _, _) = get-natural-metrics ib
+                in
+                inline-skip (expected-width -' actual-width) ++ read-inline ctx {#it; #it-subseq;}
+              in
+              bbacc +++ line-break true true ctx (right-aligned-ib ctx expected-prefix-width prefix title)
+            | TOCElement(None, title) ->
+              bbacc +++ elem-bb {#title;}
+        )) block-nil
+		in
+		let bb-toc-title =
+		  let ctx = ctx |> h2-heading in
+		  line-break true false ctx
+			(read-inline ctx {目次} ++ inline-fil)
+		in
+    	clear-page
+			+++ (heading-scheme ctx (bb-toc-title +++ (block-skip 1mm)) '<>)
+			+++ bb-toc-main
+	in
+    let bb-reference =
+      match List.reverse !reference-acc with
+      | [] ->
+          block-nil
+
+      | refs ->
+          let bb-body =
+            refs |> List.map (fun (tag, url, title) -> (
+              let it-tag = embed-string tag in
+              let it-title = embed-string title in
+              let it = {[#it-tag;] #it-title;} in
+              let key-pdf-loc = `reference:` ^ tag in
+              let decoset = Annot.register-location-frame key-pdf-loc in
+              let ib = inline-frame-breakable pads-zero decoset (read-inline ctx it) in
+              line-break true true ctx (ib ++ inline-fil)
+            )) |> List.fold-left (+++) block-nil
+          in
+          let bb-heading =
+            let ctx = ctx |> h1-heading in
+            line-break true false ctx (read-inline ctx {参考文献} ++ inline-fil)
+          in
+          clear-page +++ bb-heading +++ bb-body
+    in
+    let pagecontf _ =
+      (|
+        text-origin = text-origin;
+        text-height = text-height;
+      |)
+    in
+    let pagepartsf pbinfo =
+      (|
+        header-origin  = (0pt, 0pt);
+        header-content = block-nil;
+        footer-origin  = footer-origin;
+        footer-content = footer pbinfo;
+      |)
+    in
+    page-break paper pagecontf pagepartsf
+      (List.fold-left (+++) block-nil [
+        bb-cover;
+        bb-toc;
+        bb-main;
+        bb-reference;
+        bb-colophon;
+      ])
+
+
+  let increment-counter counter counter-children =
+    let () = counter <- !counter + 1 in
+    counter-children |> List.iter (fun r -> (r <- 0))
+
+
+  let-block ctx +h1 it bt =
+	  let () = toc-items <- (TOCElement(None, it)) :: !toc-items
+    in
+    let bb-title =
+      let ctx = ctx |> h2-heading in
+      line-break true false ctx
+        (read-inline ctx {#it;} ++ inline-fil)
+    in
+    clear-page +++ (heading-scheme ctx (bb-title +++ (block-skip 1mm)) bt)
+
+
+  let-block ctx +h2 it bt =
+    let () = increment-counter h2-number [h3-number; h4-number; h5-number; h6-number]
+    in
+    let it-hnum = embed-string(arabic !h2-number)
+    in
+    let it-label = {ring #it-hnum;:}
+    in
+	  let () = toc-items <- (TOCElement(Some(it-label), it)) :: !toc-items
+	  in
+    let bb-title =
+      let ctx = ctx |> h2-heading
+      in
+      line-break true false ctx
+        (read-inline ctx {#it-label; #it;} ++ inline-fil)
+    in
+    clear-page +++ (heading-scheme ctx (bb-title +++ (block-skip 1mm)) bt)
+
+
+  let-block ctx +h3 it bt =
+    let () = increment-counter h3-number [h4-number; h5-number; h6-number]
+    in
+    let it-hnum = embed-string(arabic !h2-number ^ `.` ^ arabic !h3-number)
+    in
+    let it-label = {#it-hnum;:}
+    in
+	  let () = toc-items <- (TOCElement(Some(it-label), it)) :: !toc-items
+	  in
+    let bb-title =
+      let ctx = ctx |> h3-heading
+	    in
+      line-break true false ctx
+        (read-inline ctx {#it-label; #it;} ++ inline-fil)
+    in
+	  let bb-title-with-pad = 
+      (List.fold-left (+++) block-nil [
+		    block-skip 0.8cm; 
+		    bb-title;
+		    block-skip 0cm; 
+      ])
+	  in
+    heading-scheme ctx bb-title-with-pad bt
+
+  let-block ctx +h4 it bt =
+    let () = increment-counter h3-number [h4-number; h5-number; h6-number] in
+    let bb-title =
+      let s-num = arabic !h1-number ^ `.` ^ arabic !h2-number ^ `.` ^ arabic !h3-number in
+      let it-num = embed-string s-num in
+      let ctx = ctx
+		|> h3-heading
+	  in
+      line-break true false ctx
+        (read-inline ctx {#it;} ++ inline-fil)
+    in
+	let bb-title-with-pad = 
+      (List.fold-left (+++) block-nil [
+		bb-title;
+      ])
+	in
+    heading-scheme ctx bb-title-with-pad bt
+
+  let-block ctx +h6 it bt =
+	  heading-scheme ctx clear-page bt
+
+  let get-quad-size ctx =
+    get-font-size ctx *' font-ratio-cjk
+
+
+  let-block ctx +p it =
+    let indent-size = 0pt in % get-quad-size ctx in
+    line-break true true ctx
+      (inline-skip indent-size ++ read-inline ctx it ++ inline-fil)
+
+
+  let-block ctx +ul its =
+    let items = its |> List.map (fun it -> Item(it, [])) in
+	let ctx = ctx |> set-leading 0cm |> set-min-gap-of-lines 10cm in
+    	read-block ctx '<+listing(Item({}, items));>
+
+
+  let-block +ol its =
+    let items = its |> List.map (fun it -> Item(it, [])) in
+    '<+enumerate(Item({}, items));>
+
+
+  let fix-block-code s =
+    string-unexplode [0x0A] ^ s
+      % dirty trick; should fix '+Code.code' and the parser of SATySFi
+
+
+  let-block ctx +code s =
+	  let ctx =
+		ctx
+		  |> set-latin-font (`SourceCodePro-Medium`, 1., 0.)
+		  |> set-font-size (get-font-size ctx *' 0.9)
+          |> set-text-color Color.red
+		  |> set-cjk-font font-cjk-gothic
+	  in
+    read-block ctx '<+Code.code(fix-block-code s);>
+
+
+  let-block ctx +console s =
+	  let ctx =
+		ctx
+		  |> set-font-size (get-font-size ctx *' 0.8)
+          |> set-text-color Color.red
+		  |> set-latin-font (`SourceCodePro-Medium`, 1., 0.)
+		  |> set-cjk-font font-cjk-gothic
+	  in
+    read-block ctx '<+Code.code(fix-block-code s);>
+
+
+  let-block ctx +quote it =
+    let qsize = get-quad-size ctx in
+    let pads = (qsize, 0pt, 0pt, 0pt) in
+    let decoset = VDecoSet.quote-round 6pt 4pt (Gray(0.75)) in
+    block-frame-breakable ctx pads decoset
+      (fun ctx -> read-block ctx it)
+
+
+  let-block ctx +hr =
+    let w = get-text-width ctx in
+    let h = hr-margin +' hr-thickness *' 0.5 in
+    let color = (Gray(0.75)) in
+    line-break true true ctx
+      (inline-graphics w h h (fun (x, y) ->
+        [ stroke hr-thickness color (Gr.line (x, y) (x +' w, y)); ]
+      ))
+
+  let-block ctx +error s =
+    let ctx = ctx |> set-text-color Color.red in
+    let it = embed-string s in
+    line-break true true ctx
+      (read-inline ctx {ERROR (B): \"#it;\"} ++ inline-fil)
+
+
+  let-inline ctx \emph it =
+    let ctx =
+      ctx |> set-cjk-font font-cjk-gothic
+          |> set-latin-font font-latin-sans
+    in
+    read-inline ctx it
+
+
+  let-inline \bold it =
+    {\emph(it);}
+
+
+  let-inline ctx \code s =
+    let ib-strut = strut 8pt 3pt in
+    let ib =
+      let ctx =
+        ctx
+          |> set-latin-font font-latin-mono
+          |> set-cjk-font font-cjk-gothic
+          |> set-every-word-break inline-nil ib-strut
+      in
+        ib-strut ++ read-inline ctx (embed-string s)
+    in
+    let pads = (4pt, 4pt, 1pt, 1pt) in
+    let decoset = HDecoSet.rectangle-round-fill 4pt 2pt code-background in
+    script-guard Latin (inline-frame-breakable pads decoset ib)
+
+
+  let-inline ctx \url s =
+    let ctx =
+      ctx |> set-latin-font font-latin-mono
+          |> set-cjk-font font-cjk-gothic
+    in
+    read-inline ctx (embed-string s)
+
+
+  let-inline ctx \reference tag display opt =
+    let it = embed-string display in
+    match opt with
+    | None ->
+        let () = display-message (`no reference for tag '` ^ tag ^ `'.`) in
+        read-inline ctx it
+
+    | Some((title, url)) ->
+        let () = display-message (`tag = '` ^ tag ^ `'`) in
+        let () = display-message (`display = '` ^ display ^ `'`) in
+        let () = display-message (`title = '` ^ title ^ `'`) in
+        let () = display-message (`url = '` ^ url ^ `'`) in
+        let () = reference-acc <- (tag, title, url) :: !reference-acc in
+        let key-pdf-loc = `reference:` ^ tag in
+        let it-tag = embed-string tag in
+        let ctx = ctx |> set-font-size ((get-font-size ctx) *' 0.75)
+        in
+        read-inline ctx {\jump(key-pdf-loc){[#it-tag;]}}
+
+  let-inline ctx \img alt src title =
+    use-image-by-width (load-image src) text-width
+
+
+  let-inline ctx \hard-break =
+    mandatory-break ctx
+
+
+  let-inline ctx \embed-block bt =
+    inline-fil ++ embed-block-breakable ctx (read-block ctx bt)
+
+
+  let-inline ctx \error s =
+    let ctx = ctx |> set-text-color Color.red in
+    let it = embed-string s in
+    read-inline ctx {ERROR (I): \"#it;\"}
+
+end
